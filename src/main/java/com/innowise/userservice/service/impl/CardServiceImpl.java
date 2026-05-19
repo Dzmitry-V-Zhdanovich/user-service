@@ -5,6 +5,9 @@ import com.innowise.userservice.dto.request.UpdateCardRequest;
 import com.innowise.userservice.dto.response.CardResponse;
 import com.innowise.userservice.entity.PaymentCard;
 import com.innowise.userservice.entity.User;
+import com.innowise.userservice.exception.DuplicateResourceException;
+import com.innowise.userservice.exception.ResourceNotFoundException;
+import com.innowise.userservice.exception.TooManyCardsException;
 import com.innowise.userservice.mapper.CardMapper;
 import com.innowise.userservice.repository.PaymentCardRepository;
 import com.innowise.userservice.repository.UserRepository;
@@ -38,16 +41,15 @@ public class CardServiceImpl implements CardService {
         log.debug("Создание карты для пользователя: {}", userId);
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("Пользователь с ID " + userId + " не найден"));
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь", userId));
 
         int activeCardsCount = cardRepository.countActiveCardsByUserId(userId);
         if (activeCardsCount >= MAX_CARDS_PER_USER) {
-            throw new RuntimeException("Пользователь уже имеет " + activeCardsCount +
-                    " активных карт. Максимум: " + MAX_CARDS_PER_USER);
+            throw new TooManyCardsException(userId, activeCardsCount);
         }
 
         if (cardRepository.existsByNumber(request.getNumber())) {
-            throw new RuntimeException("Карта с номером " + request.getNumber() + " уже существует");
+            throw new DuplicateResourceException("Карта", "номер", request.getNumber());
         }
 
         PaymentCard card = cardMapper.toEntity(request);
@@ -62,7 +64,7 @@ public class CardServiceImpl implements CardService {
         log.debug("Поиск карты по ID: {}", id);
 
         PaymentCard card = cardRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Карта с ID " + id + " не найдена"));
+                .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
         return cardMapper.toResponse(card);
     }
@@ -72,7 +74,7 @@ public class CardServiceImpl implements CardService {
         log.debug("Получение всех карт пользователя: {}", userId);
 
         if (!userRepository.existsById(userId)) {
-            throw new RuntimeException("Пользователь с ID " + userId + " не найден");
+            throw new ResourceNotFoundException("Пользователь", userId);
         }
 
         List<PaymentCard> cards = cardRepository.findByUserId(userId);
@@ -84,7 +86,7 @@ public class CardServiceImpl implements CardService {
         log.debug("Получение карт пользователя {} с пагинацией", userId);
 
         if (!userRepository.existsById(userId)) {
-            throw new RuntimeException("Пользователь с ID " + userId + " не найден");
+            throw new ResourceNotFoundException("Пользователь", userId);
         }
 
         Page<PaymentCard> cardPage = cardRepository.findByUserId(userId, pageable);
@@ -97,11 +99,11 @@ public class CardServiceImpl implements CardService {
         log.debug("Обновление карты с ID: {}", id);
 
         PaymentCard card = cardRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Карта с ID " + id + " не найдена"));
+                .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
         if (request.getNumber() != null && !request.getNumber().equals(card.getNumber())) {
             if (cardRepository.existsByNumber(request.getNumber())) {
-                throw new RuntimeException("Карта с номером " + request.getNumber() + " уже существует");
+                throw new DuplicateResourceException("Карта", "номер", request.getNumber());
             }
             card.setNumber(request.getNumber());
         }
@@ -119,7 +121,7 @@ public class CardServiceImpl implements CardService {
         log.debug("Изменение статуса карты {} на active={}", id, active);
 
         if (!cardRepository.existsById(id)) {
-            throw new RuntimeException("Карта с ID " + id + " не найдена");
+            throw new ResourceNotFoundException("Карта", id);
         }
 
         cardRepository.setActiveStatus(id, active);
@@ -132,7 +134,7 @@ public class CardServiceImpl implements CardService {
         log.debug("Удаление карты с ID: {}", id);
 
         if (!cardRepository.existsById(id)) {
-            throw new RuntimeException("Карта с ID " + id + " не найдена");
+            throw new ResourceNotFoundException("Карта", id);
         }
 
         cardRepository.deleteById(id);

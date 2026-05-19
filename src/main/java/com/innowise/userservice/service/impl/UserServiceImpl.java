@@ -4,6 +4,8 @@ import com.innowise.userservice.dto.request.CreateUserRequest;
 import com.innowise.userservice.dto.request.UpdateUserRequest;
 import com.innowise.userservice.dto.response.UserResponse;
 import com.innowise.userservice.entity.User;
+import com.innowise.userservice.exception.DuplicateResourceException;
+import com.innowise.userservice.exception.ResourceNotFoundException;
 import com.innowise.userservice.mapper.UserMapper;
 import com.innowise.userservice.repository.UserRepository;
 import com.innowise.userservice.service.UserService;
@@ -33,7 +35,7 @@ public class UserServiceImpl implements UserService {
         log.debug("Создание пользователя с email: {}", request.getEmail());
 
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new RuntimeException("Пользователь с email " + request.getEmail() + " уже существует");
+            throw new DuplicateResourceException("Пользователь", "email", request.getEmail());
         }
 
         User user = userMapper.toEntity(request);
@@ -48,7 +50,7 @@ public class UserServiceImpl implements UserService {
         log.debug("Поиск пользователя по ID: {}", id);
 
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Пользователь с ID " + id + " не найден"));
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
 
         return userMapper.toResponse(user);
     }
@@ -69,13 +71,13 @@ public class UserServiceImpl implements UserService {
         log.debug("Обновление пользователя с ID: {}", id);
 
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Пользователь с ID " + id + " не найден"));
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
 
         userMapper.updateEntityFromRequest(request, user);
 
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
             if (userRepository.existsByEmail(request.getEmail())) {
-                throw new RuntimeException("Email " + request.getEmail() + " уже используется");
+                throw new DuplicateResourceException("Пользователь", "email", request.getEmail());
             }
             user.setEmail(request.getEmail());
         }
@@ -92,7 +94,7 @@ public class UserServiceImpl implements UserService {
         log.debug("Изменение статуса пользователя {} на active={}", id, active);
 
         if (!userRepository.existsById(id)) {
-            throw new RuntimeException("Пользователь с ID " + id + " не найден");
+            throw new ResourceNotFoundException("Пользователь", id);
         }
 
         userRepository.setActiveStatus(id, active);
@@ -105,7 +107,7 @@ public class UserServiceImpl implements UserService {
         log.debug("Удаление пользователя с ID: {}", id);
 
         if (!userRepository.existsById(id)) {
-            throw new RuntimeException("Пользователь с ID " + id + " не найден");
+            throw new ResourceNotFoundException("Пользователь", id);
         }
 
         userRepository.deleteById(id);
