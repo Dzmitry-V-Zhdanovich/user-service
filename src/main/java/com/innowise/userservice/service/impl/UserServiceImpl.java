@@ -7,6 +7,7 @@ import com.innowise.userservice.entity.User;
 import com.innowise.userservice.exception.DuplicateResourceException;
 import com.innowise.userservice.exception.ResourceNotFoundException;
 import com.innowise.userservice.mapper.UserMapper;
+import com.innowise.userservice.repository.PaymentCardRepository;
 import com.innowise.userservice.repository.UserRepository;
 import com.innowise.userservice.service.UserService;
 import com.innowise.userservice.specification.UserSpecification;
@@ -18,7 +19,10 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +31,7 @@ import java.util.UUID;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final PaymentCardRepository cardRepository;
     private final UserMapper userMapper;
 
     @Override
@@ -52,7 +57,12 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
 
-        return userMapper.toResponse(user);
+        UserResponse response = userMapper.toResponse(user);
+
+        int cardsCount = cardRepository.countByUserId(user.getId());
+        response.setCardsCount(cardsCount);
+
+        return response;
     }
 
     @Override
@@ -61,6 +71,25 @@ public class UserServiceImpl implements UserService {
 
         Specification<User> spec = UserSpecification.fullFilter(name, surname, active);
         Page<User> userPage = userRepository.findAll(spec, pageable);
+
+        if (!userPage.isEmpty()) {
+            List<UUID> userIds = userPage.getContent().stream()
+                    .map(User::getId)
+                    .collect(Collectors.toList());
+
+            List<Object[]> cardCounts = cardRepository.countCardsGroupByUserIds(userIds);
+            Map<UUID, Integer> cardCountMap = cardCounts.stream()
+                    .collect(Collectors.toMap(
+                            arr -> (UUID) arr[0],
+                            arr -> ((Long) arr[1]).intValue()
+                    ));
+
+            return userPage.map(user -> {
+                UserResponse response = userMapper.toResponse(user);
+                response.setCardsCount(cardCountMap.getOrDefault(user.getId(), 0));
+                return response;
+            });
+        }
 
         return userPage.map(userMapper::toResponse);
     }

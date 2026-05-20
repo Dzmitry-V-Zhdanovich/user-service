@@ -23,15 +23,11 @@ public interface CardMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "user", expression = "java(createUserReference(request.getUserId()))")
     @Mapping(target = "active", constant = "true")
-    @Mapping(target = "createdAt", ignore = true)
-    @Mapping(target = "updatedAt", ignore = true)
     PaymentCard toEntity(CreateCardRequest request);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "user", ignore = true)
     @Mapping(target = "active", ignore = true)
-    @Mapping(target = "createdAt", ignore = true)
-    @Mapping(target = "updatedAt", ignore = true)
     void updateEntityFromRequest(UpdateCardRequest request, @MappingTarget PaymentCard card);
 
     @Mapping(target = "userId", source = "user.id")

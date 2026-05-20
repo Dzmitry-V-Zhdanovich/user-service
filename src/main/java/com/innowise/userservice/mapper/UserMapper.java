@@ -21,9 +21,7 @@ public interface UserMapper {
     User toEntity(CreateUserRequest request);
 
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "active", ignore = true)
-    @Mapping(target = "createdAt", ignore = true)
-    @Mapping(target = "updatedAt", ignore = true)
+    @Mapping(target = "active", constant = "true")
     @Mapping(target = "paymentCards", ignore = true)
     void updateEntityFromRequest(UpdateUserRequest request, @MappingTarget User user);
 

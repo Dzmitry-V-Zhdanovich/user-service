@@ -37,6 +37,9 @@ public interface PaymentCardRepository extends JpaRepository<PaymentCard, UUID>,
 
     int countByUserId(UUID userId);
 
+    @Query("SELECT pc.user.id, COUNT(pc) FROM PaymentCard pc WHERE pc.user.id IN :userIds GROUP BY pc.user.id")
+    List<Object[]> countCardsGroupByUserIds(@Param("userIds") List<UUID> userIds);
+
     boolean existsByNumber(String number);
 
     Optional<PaymentCard> findByNumber(String number);

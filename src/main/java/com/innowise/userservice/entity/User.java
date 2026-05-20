@@ -47,6 +47,7 @@ public class User extends Auditable {
     @Column(name = "email", nullable = false, unique = true)
     private String email;
 
+    @Builder.Default
     @Column(name = "active", nullable = false)
     private Boolean active = true;
 

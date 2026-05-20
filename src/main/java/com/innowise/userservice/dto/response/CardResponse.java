@@ -1,5 +1,6 @@
 package com.innowise.userservice.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import lombok.Builder;
 import lombok.Data;
 
@@ -9,6 +10,16 @@ import java.util.UUID;
 
 @Data
 @Builder
+@JsonPropertyOrder({
+        "id",
+        "number",
+        "holder",
+        "userId",
+        "expirationDate",
+        "active",
+        "createdAt",
+        "updatedAt"
+})
 public class CardResponse {
 
     private UUID id;

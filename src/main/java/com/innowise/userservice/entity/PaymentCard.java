@@ -45,6 +45,7 @@ public class PaymentCard extends Auditable {
     @Column(name = "expiration_date", nullable = false)
     private LocalDate expirationDate;
 
+    @Builder.Default
     @Column(name = "active", nullable = false)
     private Boolean active = true;
 }
