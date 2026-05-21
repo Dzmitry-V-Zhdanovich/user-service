@@ -3,12 +3,15 @@ package com.innowise.userservice.service.impl;
 import com.innowise.userservice.dto.request.CreateUserRequest;
 import com.innowise.userservice.dto.request.UpdateUserRequest;
 import com.innowise.userservice.dto.response.UserResponse;
+import com.innowise.userservice.dto.response.UserWithCardsResponse;
 import com.innowise.userservice.entity.User;
 import com.innowise.userservice.exception.DuplicateResourceException;
 import com.innowise.userservice.exception.ResourceNotFoundException;
+import com.innowise.userservice.mapper.CardMapper;
 import com.innowise.userservice.mapper.UserMapper;
 import com.innowise.userservice.repository.PaymentCardRepository;
 import com.innowise.userservice.repository.UserRepository;
+import com.innowise.userservice.service.UserCacheService;
 import com.innowise.userservice.service.UserService;
 import com.innowise.userservice.specification.UserSpecification;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -33,6 +37,8 @@ public class UserServiceImpl implements UserService {
     private final UserRepository userRepository;
     private final PaymentCardRepository cardRepository;
     private final UserMapper userMapper;
+    private final CardMapper cardMapper;
+    private final UserCacheService userCacheService;
 
     @Override
     @Transactional
@@ -54,8 +60,44 @@ public class UserServiceImpl implements UserService {
     public UserResponse getUserById(UUID id) {
         log.debug("Поиск пользователя по ID: {}", id);
 
+        Optional<UserWithCardsResponse> cachedUser = userCacheService.getCachedUser(id);
+
+        if (cachedUser.isPresent()) {
+            log.debug("Пользователь {} найден в кэше", id);
+            UserWithCardsResponse cached = cachedUser.get();
+
+            return UserResponse.builder()
+                    .id(cached.getId())
+                    .name(cached.getName())
+                    .surname(cached.getSurname())
+                    .birthDate(cached.getBirthDate())
+                    .email(cached.getEmail())
+                    .active(cached.getActive())
+                    .createdAt(cached.getCreatedAt())
+                    .updatedAt(cached.getUpdatedAt())
+                    .cardsCount(cached.getCards() != null ? cached.getCards().size() : 0)
+                    .build();
+        }
+
+        log.debug("Пользователь {} не найден в кэше, загрузка из БД", id);
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
+
+        UserWithCardsResponse userWithCards = UserWithCardsResponse.builder()
+                .id(user.getId())
+                .name(user.getName())
+                .surname(user.getSurname())
+                .birthDate(user.getBirthDate())
+                .email(user.getEmail())
+                .active(user.getActive())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
+                .cards(cardRepository.findByUserId(user.getId()).stream()
+                        .map(cardMapper::toResponse)
+                        .collect(Collectors.toList()))
+                .build();
+
+        userCacheService.cacheUser(userWithCards);
 
         UserResponse response = userMapper.toResponse(user);
 
@@ -112,6 +154,9 @@ public class UserServiceImpl implements UserService {
         }
 
         User updatedUser = userRepository.save(user);
+
+        userCacheService.evictUser(id);
+
         log.info("Обновлён пользователь с ID: {}", id);
 
         return userMapper.toResponse(updatedUser);
@@ -127,6 +172,9 @@ public class UserServiceImpl implements UserService {
         }
 
         userRepository.setActiveStatus(id, active);
+
+        userCacheService.evictUser(id);
+
         log.info("Статус пользователя {} изменён на active={}", id, active);
     }
 
@@ -140,6 +188,9 @@ public class UserServiceImpl implements UserService {
         }
 
         userRepository.deleteById(id);
+
+        userCacheService.evictUser(id);
+
         log.info("Удалён пользователь с ID: {}", id);
     }
 }

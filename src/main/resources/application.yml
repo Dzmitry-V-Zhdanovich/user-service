@@ -1,6 +1,7 @@
 spring:
   application:
     name: user-service
+
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:user_service_db}
     username: ${DB_USER:javauser}
@@ -26,6 +27,21 @@ spring:
     change-log: classpath:/db/changelog/db.changelog-master.yaml
     enabled: true
     drop-first: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+      client-type: lettuce
+
+  cache:
+    type: none
 
 logging:
   level:

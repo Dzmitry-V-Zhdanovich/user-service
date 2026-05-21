@@ -12,6 +12,7 @@ import com.innowise.userservice.mapper.CardMapper;
 import com.innowise.userservice.repository.PaymentCardRepository;
 import com.innowise.userservice.repository.UserRepository;
 import com.innowise.userservice.service.CardService;
+import com.innowise.userservice.service.UserCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -33,6 +34,7 @@ public class CardServiceImpl implements CardService {
     private final PaymentCardRepository cardRepository;
     private final UserRepository userRepository;
     private final CardMapper cardMapper;
+    private final UserCacheService userCacheService;
 
     @Override
     @Transactional
@@ -54,6 +56,8 @@ public class CardServiceImpl implements CardService {
 
         PaymentCard card = cardMapper.toEntity(request);
         PaymentCard savedCard = cardRepository.save(card);
+
+        userCacheService.evictUser(userId);
 
         log.info("Создана карта с ID: {} для пользователя: {}", savedCard.getId(), userId);
         return cardMapper.toResponse(savedCard);
@@ -111,6 +115,8 @@ public class CardServiceImpl implements CardService {
         cardMapper.updateEntityFromRequest(request, card);
         PaymentCard updatedCard = cardRepository.save(card);
 
+        userCacheService.evictUser(card.getUser().getId());
+
         log.info("Обновлена карта с ID: {}", id);
         return cardMapper.toResponse(updatedCard);
     }
@@ -120,11 +126,13 @@ public class CardServiceImpl implements CardService {
     public void setCardActiveStatus(UUID id, Boolean active) {
         log.debug("Изменение статуса карты {} на active={}", id, active);
 
-        if (!cardRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Карта", id);
-        }
+        PaymentCard card = cardRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
         cardRepository.setActiveStatus(id, active);
+
+        userCacheService.evictUser(card.getUser().getId());
+
         log.info("Статус карты {} изменён на active={}", id, active);
     }
 
@@ -133,11 +141,13 @@ public class CardServiceImpl implements CardService {
     public void deleteCard(UUID id) {
         log.debug("Удаление карты с ID: {}", id);
 
-        if (!cardRepository.existsById(id)) {
-            throw new ResourceNotFoundException("Карта", id);
-        }
+        PaymentCard card = cardRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
         cardRepository.deleteById(id);
+
+        userCacheService.evictUser(card.getUser().getId());
+
         log.info("Удалена карта с ID: {}", id);
     }
 }
