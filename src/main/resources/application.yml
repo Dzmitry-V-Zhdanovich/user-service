@@ -47,3 +47,4 @@ logging:
   level:
     liquibase: INFO
     com.zaxxer.hikari: DEBUG
+    com.innowise.userservice: DEBUG
