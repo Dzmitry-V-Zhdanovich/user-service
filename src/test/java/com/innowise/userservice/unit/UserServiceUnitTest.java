@@ -21,18 +21,29 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -260,6 +271,225 @@ public class UserServiceUnitTest {
                     .isInstanceOf(ResourceNotFoundException.class);
 
             verify(userRepository, never()).deleteById(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("setUserActiveStatus() tests")
+    class SetUserActiveStatusTest {
+
+        @Test
+        @DisplayName("Should set user active status to true successfully")
+        void shouldSetUserActiveStatusToTrueSuccessfully() {
+            // Given
+            Boolean activeStatus = true;
+            when(userRepository.existsById(testUserId)).thenReturn(true);
+            doNothing().when(userRepository).setActiveStatus(testUserId, activeStatus);
+            doNothing().when(userCacheService).evictUser(testUserId);
+
+            // When
+            userService.setUserActiveStatus(testUserId, activeStatus);
+
+            // Then
+            verify(userRepository).existsById(testUserId);
+            verify(userRepository).setActiveStatus(testUserId, activeStatus);
+            verify(userCacheService).evictUser(testUserId);
+            verifyNoMoreInteractions(userRepository, userCacheService);
+        }
+
+        @Test
+        @DisplayName("Should set user active status to false successfully")
+        void shouldSetUserActiveStatusToFalseSuccessfully() {
+            // Given
+            Boolean activeStatus = false;
+            when(userRepository.existsById(testUserId)).thenReturn(true);
+            doNothing().when(userRepository).setActiveStatus(testUserId, activeStatus);
+            doNothing().when(userCacheService).evictUser(testUserId);
+
+            // When
+            userService.setUserActiveStatus(testUserId, activeStatus);
+
+            // Then
+            verify(userRepository).existsById(testUserId);
+            verify(userRepository).setActiveStatus(testUserId, activeStatus);
+            verify(userCacheService).evictUser(testUserId);
+            verifyNoMoreInteractions(userRepository, userCacheService);
+        }
+
+        @Test
+        @DisplayName("Should throw exception when user not found")
+        void shouldThrowExceptionWhenUserNotFound() {
+            // Given
+            Boolean activeStatus = true;
+            when(userRepository.existsById(testUserId)).thenReturn(false);
+
+            // When & Then
+            assertThatThrownBy(() -> userService.setUserActiveStatus(testUserId, activeStatus))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("Пользователь")
+                    .hasMessageContaining(testUserId.toString());
+
+            verify(userRepository).existsById(testUserId);
+            verify(userRepository, never()).setActiveStatus(any(), any());
+            verify(userCacheService, never()).evictUser(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("getAllUsers() tests")
+    class GetAllUsersTests {
+
+        @Test
+        @DisplayName("Should return page of users with card counts when users exist")
+        void shouldReturnPageOfUsersWithCardCountsWhenUsersExist() {
+            // Given
+            String name = "Иван";
+            String surname = "Петров";
+            Boolean active = true;
+            Pageable pageable = PageRequest.of(0, 10);
+
+            Page<User> userPage = new PageImpl<>(List.of(testUser), pageable, 1);
+
+            when(userRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(userPage);
+
+            List<UUID> userIds = List.of(testUserId);
+            List<Object[]> cardCounts = List.<Object[]>of(
+                    new Object[]{testUserId, 5L}
+            );
+            when(cardRepository.countCardsGroupByUserIds(userIds)).thenReturn(cardCounts);
+            when(userMapper.toResponse(testUser)).thenReturn(userResponse);
+
+            // When
+            Page<UserResponse> result = userService.getAllUsers(name, surname, active, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().getFirst().getCardsCount()).isEqualTo(5);
+            assertThat(result.getContent().getFirst().getId()).isEqualTo(testUserId);
+
+            verify(userRepository).findAll(any(Specification.class), eq(pageable));
+            verify(cardRepository).countCardsGroupByUserIds(userIds);
+            verify(userMapper).toResponse(testUser);
+        }
+
+        @Test
+        @DisplayName("Should return page with zero card count when user has no cards")
+        void shouldReturnPageWithZeroCardCountWhenUserHasNoCards() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 10);
+
+            Page<User> userPage = new PageImpl<>(List.of(testUser), pageable, 1);
+
+            when(userRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(userPage);
+
+            List<UUID> userIds = List.of(testUserId);
+            List<Object[]> cardCounts = List.of();
+            when(cardRepository.countCardsGroupByUserIds(userIds)).thenReturn(cardCounts);
+            when(userMapper.toResponse(testUser)).thenReturn(userResponse);
+
+            // When
+            Page<UserResponse> result = userService.getAllUsers(null, null, null, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().getFirst().getCardsCount()).isEqualTo(0);
+
+            verify(cardRepository).countCardsGroupByUserIds(userIds);
+        }
+
+        @Test
+        @DisplayName("Should return empty page when no users found")
+        void shouldReturnEmptyPageWhenNoUsersFound() {
+            // Given
+            String name = "NonExistent";
+            String surname = "User";
+            Boolean active = true;
+            Pageable pageable = PageRequest.of(0, 10);
+
+            Page<User> emptyPage = new PageImpl<>(List.of(), pageable, 0);
+
+            when(userRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(emptyPage);
+
+            // When
+            Page<UserResponse> result = userService.getAllUsers(name, surname, active, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isEqualTo(0);
+
+            verify(userRepository).findAll(any(Specification.class), eq(pageable));
+            verify(cardRepository, never()).countCardsGroupByUserIds(any());
+            verify(userMapper, never()).toResponse(any());
+        }
+
+        @Test
+        @DisplayName("Should handle null filters correctly")
+        void shouldHandleNullFiltersCorrectly() {
+            // Given
+            String name = null;
+            String surname = null;
+            Boolean active = null;
+            Pageable pageable = PageRequest.of(0, 10);
+
+            Page<User> userPage = new PageImpl<>(List.of(testUser), pageable, 1);
+
+            when(userRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(userPage);
+
+            List<UUID> userIds = List.of(testUserId);
+            List<Object[]> cardCounts = List.<Object[]>of(new Object[]{testUserId, 3L});
+            when(cardRepository.countCardsGroupByUserIds(userIds)).thenReturn(cardCounts);
+            when(userMapper.toResponse(testUser)).thenReturn(userResponse);
+
+            // When
+            Page<UserResponse> result = userService.getAllUsers(name, surname, active, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+
+            verify(userRepository).findAll(any(Specification.class), eq(pageable));
+        }
+
+        @Test
+        @DisplayName("Should handle large number of users efficiently")
+        void shouldHandleLargeNumberOfUsersEfficiently() {
+            // Given
+            String name = null;
+            String surname = null;
+            Boolean active = null;
+            Pageable pageable = PageRequest.of(0, 1000);
+
+            List<User> users = IntStream.range(0, 500)
+                    .mapToObj(i -> User.builder()
+                            .id(UUID.randomUUID())
+                            .name("User" + i)
+                            .build())
+                    .collect(Collectors.toList());
+
+            Page<User> userPage = new PageImpl<>(users, pageable, 500);
+
+            when(userRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(userPage);
+
+            List<UUID> userIds = users.stream().map(User::getId).collect(Collectors.toList());
+            List<Object[]> cardCounts = userIds.stream()
+                    .limit(100)
+                    .map(id -> new Object[]{id, 1L})
+                    .collect(Collectors.toList());
+            when(cardRepository.countCardsGroupByUserIds(userIds)).thenReturn(cardCounts);
+            when(userMapper.toResponse(any(User.class))).thenReturn(userResponse);
+
+            // When
+            Page<UserResponse> result = userService.getAllUsers(name, surname, active, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(500);
+
+            verify(cardRepository).countCardsGroupByUserIds(userIds);
+            verify(userMapper, times(500)).toResponse(any(User.class));
         }
     }
 }

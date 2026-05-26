@@ -45,9 +45,9 @@ public class CardServiceImpl implements CardService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь", userId));
 
-        int activeCardsCount = cardRepository.countActiveCardsByUserId(userId);
-        if (activeCardsCount >= MAX_CARDS_PER_USER) {
-            throw new TooManyCardsException(userId, activeCardsCount);
+        int totalCardsCount = cardRepository.countByUserId(userId);
+        if (totalCardsCount >= MAX_CARDS_PER_USER) {
+            throw new TooManyCardsException(userId, totalCardsCount);
         }
 
         if (cardRepository.existsByNumber(request.getNumber())) {

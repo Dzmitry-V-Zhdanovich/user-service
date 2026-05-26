@@ -63,10 +63,8 @@ public class CardServiceIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Очищаем БД
         userRepository.deleteAll();
 
-        // Создаём пользователя
         User user = User.builder()
                 .name("Иван")
                 .surname("Петров")
@@ -77,7 +75,6 @@ public class CardServiceIntegrationTest {
         User savedUser = userRepository.save(user);
         testUserId = savedUser.getId();
 
-        // Создаём запрос на создание карты
         createCardRequest = CreateCardRequest.builder()
                 .userId(testUserId.toString())
                 .number("4111111111111111")
@@ -116,7 +113,6 @@ public class CardServiceIntegrationTest {
     @DisplayName("Should throw exception when card limit exceeded")
     void shouldThrowExceptionWhenCardLimitExceeded() {
         // Given
-        // Создаём 5 карт (максимум)
         for (int i = 1; i <= 5; i++) {
             CreateCardRequest request = CreateCardRequest.builder()
                     .userId(testUserId.toString())

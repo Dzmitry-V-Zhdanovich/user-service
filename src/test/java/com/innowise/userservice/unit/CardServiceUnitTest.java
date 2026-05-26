@@ -21,18 +21,25 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -120,7 +127,7 @@ public class CardServiceUnitTest {
         void shouldCreateCardSuccessfully() {
             // Given
             when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-            when(cardRepository.countActiveCardsByUserId(testUserId)).thenReturn(2);
+            when(cardRepository.countByUserId(testUserId)).thenReturn(2);
             when(cardRepository.existsByNumber(createCardRequest.getNumber())).thenReturn(false);
             when(cardMapper.toEntity(createCardRequest)).thenReturn(testCard);
             when(cardRepository.save(testCard)).thenReturn(testCard);
@@ -158,7 +165,7 @@ public class CardServiceUnitTest {
         void shouldThrowExceptionWhenCardLimitExceeded() {
             // Given
             when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-            when(cardRepository.countActiveCardsByUserId(testUserId)).thenReturn(MAX_CARDS_PER_USER);
+            when(cardRepository.countByUserId(testUserId)).thenReturn(MAX_CARDS_PER_USER);
 
             // When & Then
             assertThatThrownBy(() -> cardService.createCard(createCardRequest))
@@ -173,7 +180,7 @@ public class CardServiceUnitTest {
         void shouldThrowExceptionWhenCardNumberExists() {
             // Given
             when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-            when(cardRepository.countActiveCardsByUserId(testUserId)).thenReturn(2);
+            when(cardRepository.countByUserId(testUserId)).thenReturn(2);
             when(cardRepository.existsByNumber(createCardRequest.getNumber())).thenReturn(true);
 
             // When & Then
@@ -375,6 +382,172 @@ public class CardServiceUnitTest {
                     .isInstanceOf(ResourceNotFoundException.class);
 
             verify(cardRepository, never()).deleteById(any());
+        }
+    }
+
+    @Nested
+    @DisplayName("getCardsByUserId() with pagination tests")
+    class GetCardsByUserIdWithPaginationTests {
+
+        @Test
+        @DisplayName("Should return page of cards when user exists and has cards")
+        void shouldReturnPageOfCardsWhenUserExistsAndHasCards() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 10);
+
+            Page<PaymentCard> cardPage = new PageImpl<>(List.of(testCard), pageable, 1);
+            Page<CardResponse> expectedResponsePage = new PageImpl<>(List.of(cardResponse), pageable, 1);
+
+            when(userRepository.existsById(testUserId)).thenReturn(true);
+            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(cardPage);
+            when(cardMapper.toResponse(testCard)).thenReturn(cardResponse);
+
+            // When
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).hasSize(1);
+            assertThat(result.getContent().getFirst().getId()).isEqualTo(testCardId);
+            assertThat(result.getContent().getFirst().getNumber()).isEqualTo("4111111111111111");
+            assertThat(result.getTotalElements()).isEqualTo(1);
+
+            verify(userRepository).existsById(testUserId);
+            verify(cardRepository).findByUserId(testUserId, pageable);
+            verify(cardMapper).toResponse(testCard);
+        }
+
+        @Test
+        @DisplayName("Should return empty page when user exists but has no cards")
+        void shouldReturnEmptyPageWhenUserExistsButHasNoCards() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 10);
+            Page<PaymentCard> emptyPage = new PageImpl<>(List.of(), pageable, 0);
+
+            when(userRepository.existsById(testUserId)).thenReturn(true);
+            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(emptyPage);
+
+            // When
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getContent()).isEmpty();
+            assertThat(result.getTotalElements()).isEqualTo(0);
+            assertThat(result.getTotalPages()).isEqualTo(0);
+
+            verify(userRepository).existsById(testUserId);
+            verify(cardRepository).findByUserId(testUserId, pageable);
+            verify(cardMapper, never()).toResponse(any());
+        }
+
+        @Test
+        @DisplayName("Should throw exception when user does not exist")
+        void shouldThrowExceptionWhenUserDoesNotExist() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 10);
+
+            when(userRepository.existsById(testUserId)).thenReturn(false);
+
+            // When & Then
+            assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId, pageable))
+                    .isInstanceOf(ResourceNotFoundException.class)
+                    .hasMessageContaining("Пользователь")
+                    .hasMessageContaining(testUserId.toString());
+
+            verify(userRepository).existsById(testUserId);
+            verify(cardRepository, never()).findByUserId(any(), any());
+            verify(cardMapper, never()).toResponse(any());
+        }
+
+        @Test
+        @DisplayName("Should handle second page correctly")
+        void shouldHandleSecondPageCorrectly() {
+            // Given
+            Pageable pageable = PageRequest.of(1, 5);
+
+            List<PaymentCard> cards = IntStream.range(0, 5)
+                    .mapToObj(i -> {
+                        PaymentCard card = PaymentCard.builder()
+                                .id(UUID.randomUUID())
+                                .user(testUser)
+                                .number("411111111111111" + i)
+                                .holder("IVAN PETROV")
+                                .expirationDate(LocalDate.of(2028, 12, 31))
+                                .active(true)
+                                .build();
+                        return card;
+                    })
+                    .collect(Collectors.toList());
+
+            Page<PaymentCard> cardPage = new PageImpl<>(cards, pageable, 15);
+
+            when(userRepository.existsById(testUserId)).thenReturn(true);
+            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(cardPage);
+            when(cardMapper.toResponse(any(PaymentCard.class))).thenAnswer(invocation -> {
+                PaymentCard card = invocation.getArgument(0);
+                return CardResponse.builder()
+                        .id(card.getId())
+                        .userId(testUserId)
+                        .number(card.getNumber())
+                        .holder(card.getHolder())
+                        .expirationDate(card.getExpirationDate())
+                        .active(card.getActive())
+                        .build();
+            });
+
+            // When
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getNumber()).isEqualTo(1);
+            assertThat(result.getSize()).isEqualTo(5);
+            assertThat(result.getTotalElements()).isEqualTo(15);
+            assertThat(result.getTotalPages()).isEqualTo(3);
+            assertThat(result.getContent()).hasSize(5);
+
+            verify(userRepository).existsById(testUserId);
+            verify(cardRepository).findByUserId(testUserId, pageable);
+            verify(cardMapper, times(5)).toResponse(any(PaymentCard.class));
+        }
+
+        @Test
+        @DisplayName("Should handle large page size correctly")
+        void shouldHandleLargePageSizeCorrectly() {
+            // Given
+            Pageable pageable = PageRequest.of(0, 100);
+
+            List<PaymentCard> cards = IntStream.range(0, 50)
+                    .mapToObj(i -> {
+                        PaymentCard card = PaymentCard.builder()
+                                .id(UUID.randomUUID())
+                                .user(testUser)
+                                .number("411111111111111" + i)
+                                .holder("IVAN PETROV")
+                                .expirationDate(LocalDate.of(2028, 12, 31))
+                                .active(true)
+                                .build();
+                        return card;
+                    })
+                    .collect(Collectors.toList());
+
+            Page<PaymentCard> cardPage = new PageImpl<>(cards, pageable, 50);
+
+            when(userRepository.existsById(testUserId)).thenReturn(true);
+            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(cardPage);
+            when(cardMapper.toResponse(any(PaymentCard.class))).thenReturn(cardResponse);
+
+            // When
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+
+            // Then
+            assertThat(result).isNotNull();
+            assertThat(result.getSize()).isEqualTo(100);
+            assertThat(result.getContent()).hasSize(50);
+            assertThat(result.getTotalElements()).isEqualTo(50);
+
+            verify(cardMapper, times(50)).toResponse(any(PaymentCard.class));
         }
     }
 }
