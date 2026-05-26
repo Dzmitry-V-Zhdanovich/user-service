@@ -4,9 +4,9 @@ spring:
       on-profile: docker
 
   datasource:
-    url: jdbc:postgresql://postgres:5432/user_service_db
-    username: javauser
-    password: 12345678
+    url: jdbc:postgresql://${DB_HOST:postgres}:${DB_PORT:5432}/${DB_NAME:user_service_db}
+    username: ${DB_USERNAME:javauser}
+    password: ${DB_PASSWORD:12345678}
     driver-class-name: org.postgresql.Driver
 
   data:
