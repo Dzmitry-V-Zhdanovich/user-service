@@ -144,14 +144,13 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
 
-        userMapper.updateEntityFromRequest(request, user);
-
         if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
             if (userRepository.existsByEmail(request.getEmail())) {
                 throw new DuplicateResourceException("Пользователь", "email", request.getEmail());
             }
-            user.setEmail(request.getEmail());
         }
+
+        userMapper.updateEntityFromRequest(request, user);
 
         User updatedUser = userRepository.save(user);
 
