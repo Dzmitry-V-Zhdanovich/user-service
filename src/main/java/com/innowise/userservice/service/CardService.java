@@ -17,7 +17,7 @@ public interface CardService {
 
     List<CardResponse> getCardsByUserId(UUID userId);
 
-    Page<CardResponse> getCardsByUserId(UUID userId, Pageable pageable);
+    Page<CardResponse> getCardsByUserId(UUID userId, Boolean active, String number, Pageable pageable);
 
     CardResponse updateCard(UUID id, UpdateCardRequest request);
 

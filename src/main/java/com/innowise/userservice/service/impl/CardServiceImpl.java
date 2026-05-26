@@ -13,10 +13,12 @@ import com.innowise.userservice.repository.PaymentCardRepository;
 import com.innowise.userservice.repository.UserRepository;
 import com.innowise.userservice.service.CardService;
 import com.innowise.userservice.service.UserCacheService;
+import com.innowise.userservice.specification.PaymentCardSpecification;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -86,14 +88,15 @@ public class CardServiceImpl implements CardService {
     }
 
     @Override
-    public Page<CardResponse> getCardsByUserId(UUID userId, Pageable pageable) {
-        log.debug("Получение карт пользователя {} с пагинацией", userId);
+    public Page<CardResponse> getCardsByUserId(UUID userId, Boolean active, String number, Pageable pageable) {
+        log.debug("Получение карт пользователя {} с фильтрацией: active={}, number={}", userId, active, number);
 
         if (!userRepository.existsById(userId)) {
             throw new ResourceNotFoundException("Пользователь", userId);
         }
 
-        Page<PaymentCard> cardPage = cardRepository.findByUserId(userId, pageable);
+        Specification<PaymentCard> spec = PaymentCardSpecification.filter(userId, active, number);
+        Page<PaymentCard> cardPage = cardRepository.findAll(spec, pageable);
         return cardPage.map(cardMapper::toResponse);
     }
 

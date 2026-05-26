@@ -62,14 +62,17 @@ public class CardController {
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/user/{userId}/paged")
+    @GetMapping(value = "/user/{userId}", params = {"page"})
     public ResponseEntity<Page<CardResponse>> getCardsByUserIdPaged(
             @PathVariable UUID userId,
+            @RequestParam(required = false) Boolean active,
+            @RequestParam(required = false) String number,
             @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
 
-        log.debug("REST request to get Cards by user id with pagination: userId={}", userId);
+        log.debug("REST request to get Cards by user id with pagination and filters: userId={}, active={}, number={}",
+                userId, active, number);
 
-        Page<CardResponse> page = cardService.getCardsByUserId(userId, pageable);
+        Page<CardResponse> page = cardService.getCardsByUserId(userId, active, number, pageable);
 
         return ResponseEntity.ok(page);
     }

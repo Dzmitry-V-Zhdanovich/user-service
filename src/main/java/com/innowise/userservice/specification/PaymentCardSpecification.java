@@ -36,29 +36,9 @@ public class PaymentCardSpecification {
         };
     }
 
-    public static Specification<PaymentCard> holderContains(String holder) {
-        return (root, query, criteriaBuilder) -> {
-            if (!StringUtils.hasText(holder)) {
-                return criteriaBuilder.conjunction();
-            }
-            return criteriaBuilder.like(
-                    criteriaBuilder.lower(root.get("holder")),
-                    "%" + holder.toLowerCase() + "%"
-            );
-        };
-    }
-
-    public static Specification<PaymentCard> expirationDateBefore(LocalDate date) {
-        return (root, query, criteriaBuilder) -> {
-            if (date == null) {
-                return criteriaBuilder.conjunction();
-            }
-            return criteriaBuilder.lessThanOrEqualTo(root.get("expirationDate"), date);
-        };
-    }
-
-    public static Specification<PaymentCard> activeCardsByUser(UUID userId) {
+    public static Specification<PaymentCard> filter(UUID userId, Boolean active, String number) {
         return Specification.where(byUserId(userId))
-                .and(isActive(true));
+                .and(isActive(active))
+                .and(numberContains(number));
     }
 }

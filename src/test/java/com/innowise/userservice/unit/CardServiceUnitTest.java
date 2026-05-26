@@ -25,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -37,6 +38,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -399,11 +401,11 @@ public class CardServiceUnitTest {
             Page<CardResponse> expectedResponsePage = new PageImpl<>(List.of(cardResponse), pageable, 1);
 
             when(userRepository.existsById(testUserId)).thenReturn(true);
-            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(cardPage);
+            when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(cardPage);
             when(cardMapper.toResponse(testCard)).thenReturn(cardResponse);
 
             // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
             // Then
             assertThat(result).isNotNull();
@@ -413,7 +415,7 @@ public class CardServiceUnitTest {
             assertThat(result.getTotalElements()).isEqualTo(1);
 
             verify(userRepository).existsById(testUserId);
-            verify(cardRepository).findByUserId(testUserId, pageable);
+            verify(cardRepository).findAll(any(Specification.class), eq(pageable));
             verify(cardMapper).toResponse(testCard);
         }
 
@@ -425,10 +427,10 @@ public class CardServiceUnitTest {
             Page<PaymentCard> emptyPage = new PageImpl<>(List.of(), pageable, 0);
 
             when(userRepository.existsById(testUserId)).thenReturn(true);
-            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(emptyPage);
+            when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(emptyPage);
 
             // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
             // Then
             assertThat(result).isNotNull();
@@ -437,7 +439,7 @@ public class CardServiceUnitTest {
             assertThat(result.getTotalPages()).isEqualTo(0);
 
             verify(userRepository).existsById(testUserId);
-            verify(cardRepository).findByUserId(testUserId, pageable);
+            verify(cardRepository).findAll(any(Specification.class), eq(pageable));
             verify(cardMapper, never()).toResponse(any());
         }
 
@@ -450,13 +452,13 @@ public class CardServiceUnitTest {
             when(userRepository.existsById(testUserId)).thenReturn(false);
 
             // When & Then
-            assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId, pageable))
+            assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId, null, null, pageable))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("Пользователь")
                     .hasMessageContaining(testUserId.toString());
 
             verify(userRepository).existsById(testUserId);
-            verify(cardRepository, never()).findByUserId(any(), any());
+            verify(cardRepository, never()).findAll(any(Specification.class), any(Pageable.class));
             verify(cardMapper, never()).toResponse(any());
         }
 
@@ -483,7 +485,7 @@ public class CardServiceUnitTest {
             Page<PaymentCard> cardPage = new PageImpl<>(cards, pageable, 15);
 
             when(userRepository.existsById(testUserId)).thenReturn(true);
-            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(cardPage);
+            when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(cardPage);
             when(cardMapper.toResponse(any(PaymentCard.class))).thenAnswer(invocation -> {
                 PaymentCard card = invocation.getArgument(0);
                 return CardResponse.builder()
@@ -497,7 +499,7 @@ public class CardServiceUnitTest {
             });
 
             // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
             // Then
             assertThat(result).isNotNull();
@@ -508,7 +510,7 @@ public class CardServiceUnitTest {
             assertThat(result.getContent()).hasSize(5);
 
             verify(userRepository).existsById(testUserId);
-            verify(cardRepository).findByUserId(testUserId, pageable);
+            verify(cardRepository).findAll(any(Specification.class), eq(pageable));
             verify(cardMapper, times(5)).toResponse(any(PaymentCard.class));
         }
 
@@ -535,11 +537,11 @@ public class CardServiceUnitTest {
             Page<PaymentCard> cardPage = new PageImpl<>(cards, pageable, 50);
 
             when(userRepository.existsById(testUserId)).thenReturn(true);
-            when(cardRepository.findByUserId(testUserId, pageable)).thenReturn(cardPage);
+            when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(cardPage);
             when(cardMapper.toResponse(any(PaymentCard.class))).thenReturn(cardResponse);
 
             // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, pageable);
+            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
             // Then
             assertThat(result).isNotNull();
@@ -547,6 +549,7 @@ public class CardServiceUnitTest {
             assertThat(result.getContent()).hasSize(50);
             assertThat(result.getTotalElements()).isEqualTo(50);
 
+            verify(cardRepository).findAll(any(Specification.class), eq(pageable));
             verify(cardMapper, times(50)).toResponse(any(PaymentCard.class));
         }
     }
