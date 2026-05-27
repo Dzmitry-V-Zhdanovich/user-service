@@ -1,7 +1,6 @@
 package com.innowise.userservice.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.innowise.userservice.dto.response.UserWithCardsResponse;
 import com.innowise.userservice.util.RedisKeyUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -22,35 +21,27 @@ public class UserCacheService {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
-    private final boolean redisAvailable;
 
     @Autowired
-    public UserCacheService(StringRedisTemplate redisTemplate) {
+    public UserCacheService(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
-        this.objectMapper = new ObjectMapper();
-        this.objectMapper.registerModule(new JavaTimeModule());
-        this.objectMapper.configure(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false);
-        this.redisAvailable = checkRedisConnection();
+        this.objectMapper = objectMapper;
 
-        if (redisAvailable) {
-            log.info("Redis is available, caching is enabled");
-        } else {
-            log.warn("Redis is NOT available, caching will be disabled. The application will continue to run without caching.");
-        }
+        log.info("UserCacheService initialized with application ObjectMapper");
     }
 
-    private boolean checkRedisConnection() {
+    private boolean isRedisAvailable() {
         try {
             String pong = redisTemplate.getConnectionFactory().getConnection().ping();
             return "PONG".equals(pong);
         } catch (Exception e) {
-            log.warn("Failed to connect to Redis: {}", e.getMessage());
+            log.warn("Redis is NOT available, caching is temporarily disabled: {}", e.getMessage());
             return false;
         }
     }
 
     public Optional<UserWithCardsResponse> getCachedUser(UUID userId) {
-        if (!redisAvailable) {
+        if (!isRedisAvailable()) {
             log.debug("Redis is unavailable, skipping reading from cache");
             return Optional.empty();
         }
@@ -75,7 +66,7 @@ public class UserCacheService {
     }
 
     public void cacheUser(UserWithCardsResponse user) {
-        if (!redisAvailable) {
+        if (!isRedisAvailable()) {
             log.debug("Redis is unavailable, skipping saving to cache");
             return;
         }
@@ -97,7 +88,7 @@ public class UserCacheService {
     }
 
     public void evictUser(UUID userId) {
-        if (!redisAvailable) {
+        if (!isRedisAvailable()) {
             log.debug("Redis is unavailable, skipping cache clearing");
             return;
         }
@@ -119,20 +110,5 @@ public class UserCacheService {
         } catch (Exception e) {
             log.error("Error clearing user {}'s cache: {}", userId, e.getMessage());
         }
-    }
-
-    public void updateCachedUser(UserWithCardsResponse user) {
-        if (!redisAvailable) {
-            log.debug("Redis is unavailable, skipping cache update");
-            return;
-        }
-
-        if (user == null || user.getId() == null) {
-            log.warn("Attempting to update cache with null user");
-            return;
-        }
-
-        cacheUser(user);
-        log.debug("User {}'s cache has been updated.", user.getId());
     }
 }

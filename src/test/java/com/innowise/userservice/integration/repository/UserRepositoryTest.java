@@ -25,6 +25,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("UserRepository Integration Tests")
 public class UserRepositoryTest {
 
+    @org.springframework.boot.test.context.TestConfiguration
+    static class JacksonTestConfig {
+        @org.springframework.context.annotation.Bean
+        public com.fasterxml.jackson.databind.ObjectMapper testObjectMapper() {
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+            return mapper;
+        }
+    }
+
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
             .withDatabaseName("test_db")
