@@ -170,6 +170,14 @@ public class UserServiceUnitTest {
             // Given
             when(userCacheService.getCachedUser(testUserId)).thenReturn(Optional.of(cachedUser));
 
+            UserResponse expectedResponse = UserResponse.builder()
+                    .id(testUserId)
+                    .name(cachedUser.getName())
+                    .build();
+
+            when(userMapper.toResponse(any(UserWithCardsResponse.class)))
+                    .thenReturn(expectedResponse);
+
             // When
             UserResponse result = userService.getUserById(testUserId);
 
@@ -179,6 +187,8 @@ public class UserServiceUnitTest {
 
             verify(userCacheService).getCachedUser(testUserId);
             verify(userRepository, never()).findById(any());
+
+            verify(userMapper).toResponse(any(UserWithCardsResponse.class));
         }
 
         @Test
@@ -422,7 +432,7 @@ public class UserServiceUnitTest {
 
             verify(userRepository).findAll(any(Specification.class), eq(pageable));
             verify(cardRepository, never()).countCardsGroupByUserIds(any());
-            verify(userMapper, never()).toResponse(any());
+            verify(userMapper, never()).toResponse(any(User.class));
         }
 
         @Test

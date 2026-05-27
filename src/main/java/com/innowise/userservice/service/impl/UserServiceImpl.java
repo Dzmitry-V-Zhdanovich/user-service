@@ -64,19 +64,8 @@ public class UserServiceImpl implements UserService {
 
         if (cachedUser.isPresent()) {
             log.debug("Пользователь {} найден в кэше", id);
-            UserWithCardsResponse cached = cachedUser.get();
 
-            return UserResponse.builder()
-                    .id(cached.getId())
-                    .name(cached.getName())
-                    .surname(cached.getSurname())
-                    .birthDate(cached.getBirthDate())
-                    .email(cached.getEmail())
-                    .active(cached.getActive())
-                    .createdAt(cached.getCreatedAt())
-                    .updatedAt(cached.getUpdatedAt())
-                    .cardsCount(cached.getCards() != null ? cached.getCards().size() : 0)
-                    .build();
+            return userMapper.toResponse(cachedUser.get());
         }
 
         log.debug("Пользователь {} не найден в кэше, загрузка из БД", id);
