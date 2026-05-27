@@ -1,0 +1,184 @@
+package com.innowise.userservice.service.impl;
+
+import com.innowise.userservice.dto.request.CreateUserRequest;
+import com.innowise.userservice.dto.request.UpdateUserRequest;
+import com.innowise.userservice.dto.response.UserResponse;
+import com.innowise.userservice.dto.response.UserWithCardsResponse;
+import com.innowise.userservice.entity.User;
+import com.innowise.userservice.exception.DuplicateResourceException;
+import com.innowise.userservice.exception.ResourceNotFoundException;
+import com.innowise.userservice.mapper.CardMapper;
+import com.innowise.userservice.mapper.UserMapper;
+import com.innowise.userservice.repository.PaymentCardRepository;
+import com.innowise.userservice.repository.UserRepository;
+import com.innowise.userservice.service.UserCacheService;
+import com.innowise.userservice.service.UserService;
+import com.innowise.userservice.specification.UserSpecification;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+@Transactional(readOnly = true)
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository userRepository;
+    private final PaymentCardRepository cardRepository;
+    private final UserMapper userMapper;
+    private final CardMapper cardMapper;
+    private final UserCacheService userCacheService;
+
+    @Override
+    @Transactional
+    public UserResponse createUser(CreateUserRequest request) {
+        log.debug("Создание пользователя с email: {}", request.getEmail());
+
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new DuplicateResourceException("Пользователь", "email", request.getEmail());
+        }
+
+        User user = userMapper.toEntity(request);
+        User savedUser = userRepository.save(user);
+
+        log.info("Создан пользователь с ID: {}", savedUser.getId());
+        return userMapper.toResponse(savedUser);
+    }
+
+    @Override
+    public UserResponse getUserById(UUID id) {
+        log.debug("Поиск пользователя по ID: {}", id);
+
+        Optional<UserWithCardsResponse> cachedUser = userCacheService.getCachedUser(id);
+
+        if (cachedUser.isPresent()) {
+            log.debug("Пользователь {} найден в кэше", id);
+
+            return userMapper.toResponse(cachedUser.get());
+        }
+
+        log.debug("Пользователь {} не найден в кэше, загрузка из БД", id);
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
+
+        UserWithCardsResponse userWithCards = UserWithCardsResponse.builder()
+                .id(user.getId())
+                .name(user.getName())
+                .surname(user.getSurname())
+                .birthDate(user.getBirthDate())
+                .email(user.getEmail())
+                .active(user.getActive())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
+                .cards(cardRepository.findByUserId(user.getId()).stream()
+                        .map(cardMapper::toResponse)
+                        .collect(Collectors.toList()))
+                .build();
+
+        userCacheService.cacheUser(userWithCards);
+
+        UserResponse response = userMapper.toResponse(user);
+
+        int cardsCount = cardRepository.countByUserId(user.getId());
+        response.setCardsCount(cardsCount);
+
+        return response;
+    }
+
+    @Override
+    public Page<UserResponse> getAllUsers(String name, String surname, Boolean active, Pageable pageable) {
+        log.debug("Получение пользователей с фильтрацией: name={}, surname={}, active={}", name, surname, active);
+
+        Specification<User> spec = UserSpecification.fullFilter(name, surname, active);
+        Page<User> userPage = userRepository.findAll(spec, pageable);
+
+        if (!userPage.isEmpty()) {
+            List<UUID> userIds = userPage.getContent().stream()
+                    .map(User::getId)
+                    .collect(Collectors.toList());
+
+            List<Object[]> cardCounts = cardRepository.countCardsGroupByUserIds(userIds);
+            Map<UUID, Integer> cardCountMap = cardCounts.stream()
+                    .collect(Collectors.toMap(
+                            arr -> (UUID) arr[0],
+                            arr -> ((Long) arr[1]).intValue()
+                    ));
+
+            return userPage.map(user -> {
+                UserResponse response = userMapper.toResponse(user);
+                response.setCardsCount(cardCountMap.getOrDefault(user.getId(), 0));
+                return response;
+            });
+        }
+
+        return userPage.map(userMapper::toResponse);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateUser(UUID id, UpdateUserRequest request) {
+        log.debug("Обновление пользователя с ID: {}", id);
+
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Пользователь", id));
+
+        if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
+            if (userRepository.existsByEmail(request.getEmail())) {
+                throw new DuplicateResourceException("Пользователь", "email", request.getEmail());
+            }
+        }
+
+        userMapper.updateEntityFromRequest(request, user);
+
+        User updatedUser = userRepository.save(user);
+
+        userCacheService.evictUser(id);
+
+        log.info("Обновлён пользователь с ID: {}", id);
+
+        return userMapper.toResponse(updatedUser);
+    }
+
+    @Override
+    @Transactional
+    public void setUserActiveStatus(UUID id, Boolean active) {
+        log.debug("Изменение статуса пользователя {} на active={}", id, active);
+
+        if (!userRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Пользователь", id);
+        }
+
+        userRepository.setActiveStatus(id, active);
+
+        userCacheService.evictUser(id);
+
+        log.info("Статус пользователя {} изменён на active={}", id, active);
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(UUID id) {
+        log.debug("Удаление пользователя с ID: {}", id);
+
+        if (!userRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Пользователь", id);
+        }
+
+        userRepository.deleteById(id);
+
+        userCacheService.evictUser(id);
+
+        log.info("Удалён пользователь с ID: {}", id);
+    }
+}

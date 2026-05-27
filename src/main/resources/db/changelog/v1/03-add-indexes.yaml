@@ -1,0 +1,137 @@
+databaseChangeLog:
+  - changeSet:
+      id: 3
+      author: Dmitry
+      labels: indexes
+      comment: "Add all indexes for users and payment_cards tables"
+      changes:
+
+        - createIndex:
+            indexName: idx_users_email
+            tableName: users
+            unique: true
+            columns:
+              - column:
+                  name: email
+            remarks: "Unique index for fast email lookup"
+
+        - createIndex:
+            indexName: idx_users_birth_date
+            tableName: users
+            unique: false
+            columns:
+              - column:
+                  name: birth_date
+            remarks: "Index for birth date filtering"
+
+        - createIndex:
+            indexName: idx_users_active
+            tableName: users
+            unique: false
+            columns:
+              - column:
+                  name: active
+            remarks: "Index for filtering active users"
+
+        - createIndex:
+            indexName: idx_users_active_surname
+            tableName: users
+            unique: false
+            columns:
+              - column:
+                  name: active
+              - column:
+                  name: surname
+            remarks: "Composite index for active users sorted by surname"
+
+        - createIndex:
+            indexName: idx_users_name_surname
+            tableName: users
+            unique: false
+            columns:
+              - column:
+                  name: name
+              - column:
+                  name: surname
+            remarks: "Index for searching users by full name"
+
+        - createIndex:
+            indexName: idx_payment_cards_user_id
+            tableName: payment_cards
+            unique: false
+            columns:
+              - column:
+                  name: user_id
+            remarks: "Index for fast user cards lookup"
+
+        - createIndex:
+            indexName: idx_payment_cards_number
+            tableName: payment_cards
+            unique: true
+            columns:
+              - column:
+                  name: number
+            remarks: "Unique index on card number"
+
+        - createIndex:
+            indexName: idx_payment_cards_active
+            tableName: payment_cards
+            unique: false
+            columns:
+              - column:
+                  name: active
+            remarks: "Index for filtering active cards"
+
+        - createIndex:
+            indexName: idx_payment_cards_user_active
+            tableName: payment_cards
+            unique: false
+            columns:
+              - column:
+                  name: user_id
+              - column:
+                  name: active
+            remarks: "Composite index for active cards of a specific user"
+
+        - createIndex:
+            indexName: idx_payment_cards_expiration_active
+            tableName: payment_cards
+            unique: false
+            columns:
+              - column:
+                  name: expiration_date
+              - column:
+                  name: active
+            remarks: "Index for finding active expired cards"
+
+      rollback:
+        - dropIndex:
+            indexName: idx_payment_cards_expiration_active
+            tableName: payment_cards
+        - dropIndex:
+            indexName: idx_payment_cards_user_active
+            tableName: payment_cards
+        - dropIndex:
+            indexName: idx_payment_cards_active
+            tableName: payment_cards
+        - dropIndex:
+            indexName: idx_payment_cards_number
+            tableName: payment_cards
+        - dropIndex:
+            indexName: idx_payment_cards_user_id
+            tableName: payment_cards
+        - dropIndex:
+            indexName: idx_users_name_surname
+            tableName: users
+        - dropIndex:
+            indexName: idx_users_active_surname
+            tableName: users
+        - dropIndex:
+            indexName: idx_users_active
+            tableName: users
+        - dropIndex:
+            indexName: idx_users_birth_date
+            tableName: users
+        - dropIndex:
+            indexName: idx_users_email
+            tableName: users
