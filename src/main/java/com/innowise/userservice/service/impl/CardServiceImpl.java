@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -72,6 +74,15 @@ public class CardServiceImpl implements CardService {
         PaymentCard card = cardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
+        String currentUserId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        if (!isAdmin && !card.getUser().getId().toString().equals(currentUserId)) {
+            throw new AccessDeniedException("Вы не имеете доступа к чужой карте");
+        }
+
         return cardMapper.toResponse(card);
     }
 
@@ -107,6 +118,15 @@ public class CardServiceImpl implements CardService {
 
         PaymentCard card = cardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
+
+        String currentUserId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        if (!isAdmin && !card.getUser().getId().toString().equals(currentUserId)) {
+            throw new AccessDeniedException("Вы не имеете доступа к чужой карте");
+        }
 
         if (request.getNumber() != null && !request.getNumber().equals(card.getNumber())) {
             if (cardRepository.existsByNumber(request.getNumber())) {
@@ -146,6 +166,15 @@ public class CardServiceImpl implements CardService {
 
         PaymentCard card = cardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
+
+        String currentUserId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        if (!isAdmin && !card.getUser().getId().toString().equals(currentUserId)) {
+            throw new AccessDeniedException("Вы не имеете доступа к чужой карте");
+        }
 
         cardRepository.deleteById(id);
 

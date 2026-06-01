@@ -20,12 +20,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -35,11 +40,14 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -118,6 +126,23 @@ public class CardServiceUnitTest {
                 .expirationDate(LocalDate.of(2028, 12, 31))
                 .active(true)
                 .build();
+    }
+
+    private org.mockito.MockedStatic<org.springframework.security.core.context.SecurityContextHolder> mockSecurityContext(UUID userId, String role) {
+        Authentication authentication = mock(Authentication.class);
+        SecurityContext securityContext = mock(SecurityContext.class);
+
+        when(authentication.getPrincipal()).thenReturn(userId.toString());
+
+        SimpleGrantedAuthority authority = new SimpleGrantedAuthority(role);
+        doReturn(singletonList(authority)).when(authentication).getAuthorities();
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+
+        org.mockito.MockedStatic<org.springframework.security.core.context.SecurityContextHolder> mockedHolder =
+                Mockito.mockStatic(SecurityContextHolder.class);
+        mockedHolder.when(SecurityContextHolder::getContext).thenReturn(securityContext);
+
+        return mockedHolder;
     }
 
     @Nested
@@ -205,13 +230,15 @@ public class CardServiceUnitTest {
             when(cardRepository.findById(testCardId)).thenReturn(Optional.of(testCard));
             when(cardMapper.toResponse(testCard)).thenReturn(cardResponse);
 
-            // When
-            CardResponse result = cardService.getCardById(testCardId);
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                CardResponse result = cardService.getCardById(testCardId);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getId()).isEqualTo(testCardId);
-            assertThat(result.getNumber()).isEqualTo("4111111111111111");
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getId()).isEqualTo(testCardId);
+                assertThat(result.getNumber()).isEqualTo("4111111111111111");
+            }
         }
 
         @Test
@@ -277,13 +304,15 @@ public class CardServiceUnitTest {
             when(cardMapper.toResponse(testCard)).thenReturn(cardResponse);
             doNothing().when(userCacheService).evictUser(testUserId);
 
-            // When
-            CardResponse result = cardService.updateCard(testCardId, updateCardRequest);
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                CardResponse result = cardService.updateCard(testCardId, updateCardRequest);
 
-            // Then
-            assertThat(result).isNotNull();
-            verify(userCacheService).evictUser(testUserId);
-            verify(cardRepository).save(testCard);
+                // Then
+                assertThat(result).isNotNull();
+                verify(userCacheService).evictUser(testUserId);
+                verify(cardRepository).save(testCard);
+            }
         }
 
         @Test
@@ -311,11 +340,13 @@ public class CardServiceUnitTest {
             when(cardRepository.findById(testCardId)).thenReturn(Optional.of(testCard));
             when(cardRepository.existsByNumber(newNumber)).thenReturn(true);
 
-            // When & Then
-            assertThatThrownBy(() -> cardService.updateCard(testCardId, requestWithNewNumber))
-                    .isInstanceOf(DuplicateResourceException.class);
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.updateCard(testCardId, requestWithNewNumber))
+                        .isInstanceOf(DuplicateResourceException.class);
 
-            verify(cardRepository, never()).save(any());
+                verify(cardRepository, never()).save(any());
+            }
         }
     }
 
@@ -365,12 +396,14 @@ public class CardServiceUnitTest {
             doNothing().when(cardRepository).deleteById(testCardId);
             doNothing().when(userCacheService).evictUser(testUserId);
 
-            // When
-            cardService.deleteCard(testCardId);
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                cardService.deleteCard(testCardId);
 
-            // Then
-            verify(cardRepository).deleteById(testCardId);
-            verify(userCacheService).evictUser(testUserId);
+                // Then
+                verify(cardRepository).deleteById(testCardId);
+                verify(userCacheService).evictUser(testUserId);
+            }
         }
 
         @Test

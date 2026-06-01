@@ -13,6 +13,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -54,6 +55,7 @@ public class CardController {
     }
 
     @GetMapping("/user/{userId}")
+    @PreAuthorize("hasRole('ADMIN') or authentication.principal == #userId.toString()")
     public ResponseEntity<List<CardResponse>> getCardsByUserId(@PathVariable UUID userId) {
         log.debug("REST request to get Cards by user id: {}", userId);
 
@@ -63,6 +65,7 @@ public class CardController {
     }
 
     @GetMapping(value = "/user/{userId}", params = {"page"})
+    @PreAuthorize("hasRole('ADMIN') or authentication.principal == #userId.toString()")
     public ResponseEntity<Page<CardResponse>> getCardsByUserIdPaged(
             @PathVariable UUID userId,
             @RequestParam(required = false) Boolean active,
@@ -90,6 +93,7 @@ public class CardController {
     }
 
     @PatchMapping("/{id}/active")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> setCardActiveStatus(
             @PathVariable UUID id,
             @RequestParam Boolean active) {

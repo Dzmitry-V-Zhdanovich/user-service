@@ -45,6 +45,13 @@ spring:
   cache:
     type: none
 
+jwt:
+  secret: "mySuperSecretKeyForJWTGenerationThatIsLongEnoughForHS256AndMoreSecure12345"
+  access:
+    expiration: 900000  # 15 minutes
+  refresh:
+    expiration: 604800000  # 7 days
+
 logging:
   level:
     liquibase: INFO
