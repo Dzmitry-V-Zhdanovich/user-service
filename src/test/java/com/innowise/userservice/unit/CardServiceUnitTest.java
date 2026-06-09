@@ -20,16 +20,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
-import org.springframework.security.core.Authentication;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
@@ -40,14 +39,11 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -128,21 +124,19 @@ public class CardServiceUnitTest {
                 .build();
     }
 
-    private org.mockito.MockedStatic<org.springframework.security.core.context.SecurityContextHolder> mockSecurityContext(UUID userId, String role) {
-        Authentication authentication = mock(Authentication.class);
-        SecurityContext securityContext = mock(SecurityContext.class);
+    interface TestSecurityContext extends AutoCloseable {
+        @Override
+        void close();
+    }
 
-        when(authentication.getPrincipal()).thenReturn(userId.toString());
-
-        SimpleGrantedAuthority authority = new SimpleGrantedAuthority(role);
-        doReturn(singletonList(authority)).when(authentication).getAuthorities();
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-
-        org.mockito.MockedStatic<org.springframework.security.core.context.SecurityContextHolder> mockedHolder =
-                Mockito.mockStatic(SecurityContextHolder.class);
-        mockedHolder.when(SecurityContextHolder::getContext).thenReturn(securityContext);
-
-        return mockedHolder;
+    TestSecurityContext mockSecurityContext(UUID userId, String role) {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                        userId.toString(),
+                        null,
+                        java.util.List.of(new SimpleGrantedAuthority(role))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
+        return SecurityContextHolder::clearContext;
     }
 
     @Nested
@@ -161,13 +155,15 @@ public class CardServiceUnitTest {
             when(cardMapper.toResponse(testCard)).thenReturn(cardResponse);
             doNothing().when(userCacheService).evictUser(testUserId);
 
-            // When
-            CardResponse result = cardService.createCard(createCardRequest);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                CardResponse result = cardService.createCard(createCardRequest);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getId()).isEqualTo(testCardId);
-            assertThat(result.getNumber()).isEqualTo("4111111111111111");
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getId()).isEqualTo(testCardId);
+                assertThat(result.getNumber()).isEqualTo("4111111111111111");
+            }
 
             verify(userCacheService).evictUser(testUserId);
             verify(cardRepository).save(testCard);
@@ -179,10 +175,12 @@ public class CardServiceUnitTest {
             // Given
             when(userRepository.findById(testUserId)).thenReturn(Optional.empty());
 
-            // When & Then
-            assertThatThrownBy(() -> cardService.createCard(createCardRequest))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Пользователь");
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.createCard(createCardRequest))
+                        .isInstanceOf(ResourceNotFoundException.class)
+                        .hasMessageContaining("Пользователь");
+            }
 
             verify(cardRepository, never()).save(any());
         }
@@ -194,10 +192,12 @@ public class CardServiceUnitTest {
             when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
             when(cardRepository.countByUserId(testUserId)).thenReturn(MAX_CARDS_PER_USER);
 
-            // When & Then
-            assertThatThrownBy(() -> cardService.createCard(createCardRequest))
-                    .isInstanceOf(TooManyCardsException.class)
-                    .hasMessageContaining("5");
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.createCard(createCardRequest))
+                        .isInstanceOf(TooManyCardsException.class)
+                        .hasMessageContaining("5");
+            }
 
             verify(cardRepository, never()).save(any());
         }
@@ -210,12 +210,39 @@ public class CardServiceUnitTest {
             when(cardRepository.countByUserId(testUserId)).thenReturn(2);
             when(cardRepository.existsByNumber(createCardRequest.getNumber())).thenReturn(true);
 
-            // When & Then
-            assertThatThrownBy(() -> cardService.createCard(createCardRequest))
-                    .isInstanceOf(DuplicateResourceException.class)
-                    .hasMessageContaining("номер");
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.createCard(createCardRequest))
+                        .isInstanceOf(DuplicateResourceException.class)
+                        .hasMessageContaining("номер");
+            }
 
             verify(cardRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw AccessDeniedException when user tries to create card for another user")
+        void shouldThrowAccessDeniedWhenCreatingCardForAnotherUser() {
+            // Given
+            UUID anotherUserId = UUID.randomUUID();
+            CreateCardRequest requestForAnotherUser = CreateCardRequest.builder()
+                    .userId(anotherUserId.toString())
+                    .number("4111111111111111")
+                    .holder("IVAN PETROV")
+                    .expirationDate(LocalDate.of(2028, 12, 31))
+                    .build();
+
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.createCard(requestForAnotherUser))
+                        .isInstanceOf(AccessDeniedException.class)
+                        .hasMessageContaining("чужими")
+                        .hasMessageContaining("картами");
+
+                verify(userRepository, never()).findById(anotherUserId);
+                verify(cardRepository, never()).save(any());
+                verify(userCacheService, never()).evictUser(any());
+            }
         }
     }
 
@@ -252,6 +279,34 @@ public class CardServiceUnitTest {
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("Карта");
         }
+
+        @Test
+        @DisplayName("Should throw AccessDeniedException when user tries to access another user's card")
+        void shouldThrowAccessDeniedWhenAccessingAnotherUsersCard() {
+            // Given
+            UUID anotherUserId = UUID.randomUUID();
+            PaymentCard anotherUserCard = PaymentCard.builder()
+                    .id(testCardId)
+                    .user(User.builder().id(anotherUserId).build())
+                    .number("4111111111111111")
+                    .holder("OTHER USER")
+                    .expirationDate(LocalDate.of(2028, 12, 31))
+                    .active(true)
+                    .build();
+
+            when(cardRepository.findById(testCardId)).thenReturn(Optional.of(anotherUserCard));
+
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.getCardById(testCardId))
+                        .isInstanceOf(AccessDeniedException.class)
+                        .hasMessageContaining("доступ")
+                        .hasMessageContaining("картам");
+
+                verify(cardRepository).findById(testCardId);
+                verify(cardMapper, never()).toResponse(any());
+            }
+        }
     }
 
     @Nested
@@ -269,12 +324,18 @@ public class CardServiceUnitTest {
             when(cardRepository.findByUserId(testUserId)).thenReturn(cards);
             when(cardMapper.toResponseList(cards)).thenReturn(cardResponses);
 
-            // When
-            List<CardResponse> result = cardService.getCardsByUserId(testUserId);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                List<CardResponse> result = cardService.getCardsByUserId(testUserId);
 
-            // Then
-            assertThat(result.size()).isEqualTo(1);
-            assertThat(result.getFirst().getId()).isEqualTo(testCardId);
+                // Then
+                assertThat(result.size()).isEqualTo(1);
+                assertThat(result.getFirst().getId()).isEqualTo(testCardId);
+            }
+
+            verify(userRepository).existsById(testUserId);
+            verify(cardRepository).findByUserId(testUserId);
+            verify(cardMapper).toResponseList(cards);
         }
 
         @Test
@@ -283,9 +344,11 @@ public class CardServiceUnitTest {
             // Given
             when(userRepository.existsById(testUserId)).thenReturn(false);
 
-            // When & Then
-            assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId))
-                    .isInstanceOf(ResourceNotFoundException.class);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId))
+                        .isInstanceOf(ResourceNotFoundException.class);
+            }
 
             verify(cardRepository, never()).findByUserId(any());
         }
@@ -346,6 +409,33 @@ public class CardServiceUnitTest {
                         .isInstanceOf(DuplicateResourceException.class);
 
                 verify(cardRepository, never()).save(any());
+            }
+        }
+
+        @Test
+        @DisplayName("Should throw AccessDeniedException when user tries to update another user's card")
+        void shouldThrowAccessDeniedWhenUpdatingAnotherUsersCard() {
+            // Given
+            UUID anotherUserId = UUID.randomUUID();
+            PaymentCard anotherUserCard = PaymentCard.builder()
+                    .id(testCardId)
+                    .user(User.builder().id(anotherUserId).build())
+                    .number("4111111111111111")
+                    .holder("OTHER USER")
+                    .expirationDate(LocalDate.of(2028, 12, 31))
+                    .active(true)
+                    .build();
+
+            when(cardRepository.findById(testCardId)).thenReturn(Optional.of(anotherUserCard));
+
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.updateCard(testCardId, updateCardRequest))
+                        .isInstanceOf(AccessDeniedException.class);
+
+                verify(cardRepository).findById(testCardId);
+                verify(cardRepository, never()).save(any());
+                verify(userCacheService, never()).evictUser(any());
             }
         }
     }
@@ -418,6 +508,33 @@ public class CardServiceUnitTest {
 
             verify(cardRepository, never()).deleteById(any());
         }
+
+        @Test
+        @DisplayName("Should throw AccessDeniedException when user tries to delete another user's card")
+        void shouldThrowAccessDeniedWhenDeletingAnotherUsersCard() {
+            // Given
+            UUID anotherUserId = UUID.randomUUID();
+            PaymentCard anotherUserCard = PaymentCard.builder()
+                    .id(testCardId)
+                    .user(User.builder().id(anotherUserId).build())
+                    .number("4111111111111111")
+                    .holder("OTHER USER")
+                    .expirationDate(LocalDate.of(2028, 12, 31))
+                    .active(true)
+                    .build();
+
+            when(cardRepository.findById(testCardId)).thenReturn(Optional.of(anotherUserCard));
+
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.deleteCard(testCardId))
+                        .isInstanceOf(AccessDeniedException.class);
+
+                verify(cardRepository).findById(testCardId);
+                verify(cardRepository, never()).deleteById(any());
+                verify(userCacheService, never()).evictUser(any());
+            }
+        }
     }
 
     @Nested
@@ -437,15 +554,17 @@ public class CardServiceUnitTest {
             when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(cardPage);
             when(cardMapper.toResponse(testCard)).thenReturn(cardResponse);
 
-            // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getContent()).hasSize(1);
-            assertThat(result.getContent().getFirst().getId()).isEqualTo(testCardId);
-            assertThat(result.getContent().getFirst().getNumber()).isEqualTo("4111111111111111");
-            assertThat(result.getTotalElements()).isEqualTo(1);
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getContent()).hasSize(1);
+                assertThat(result.getContent().getFirst().getId()).isEqualTo(testCardId);
+                assertThat(result.getContent().getFirst().getNumber()).isEqualTo("4111111111111111");
+                assertThat(result.getTotalElements()).isEqualTo(1);
+            }
 
             verify(userRepository).existsById(testUserId);
             verify(cardRepository).findAll(any(Specification.class), eq(pageable));
@@ -462,14 +581,16 @@ public class CardServiceUnitTest {
             when(userRepository.existsById(testUserId)).thenReturn(true);
             when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(emptyPage);
 
-            // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getContent()).isEmpty();
-            assertThat(result.getTotalElements()).isEqualTo(0);
-            assertThat(result.getTotalPages()).isEqualTo(0);
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getContent()).isEmpty();
+                assertThat(result.getTotalElements()).isEqualTo(0);
+                assertThat(result.getTotalPages()).isEqualTo(0);
+            }
 
             verify(userRepository).existsById(testUserId);
             verify(cardRepository).findAll(any(Specification.class), eq(pageable));
@@ -484,11 +605,13 @@ public class CardServiceUnitTest {
 
             when(userRepository.existsById(testUserId)).thenReturn(false);
 
-            // When & Then
-            assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId, null, null, pageable))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Пользователь")
-                    .hasMessageContaining(testUserId.toString());
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> cardService.getCardsByUserId(testUserId, null, null, pageable))
+                        .isInstanceOf(ResourceNotFoundException.class)
+                        .hasMessageContaining("Пользователь")
+                        .hasMessageContaining(testUserId.toString());
+            }
 
             verify(userRepository).existsById(testUserId);
             verify(cardRepository, never()).findAll(any(Specification.class), any(Pageable.class));
@@ -531,16 +654,18 @@ public class CardServiceUnitTest {
                         .build();
             });
 
-            // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getNumber()).isEqualTo(1);
-            assertThat(result.getSize()).isEqualTo(5);
-            assertThat(result.getTotalElements()).isEqualTo(15);
-            assertThat(result.getTotalPages()).isEqualTo(3);
-            assertThat(result.getContent()).hasSize(5);
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getNumber()).isEqualTo(1);
+                assertThat(result.getSize()).isEqualTo(5);
+                assertThat(result.getTotalElements()).isEqualTo(15);
+                assertThat(result.getTotalPages()).isEqualTo(3);
+                assertThat(result.getContent()).hasSize(5);
+            }
 
             verify(userRepository).existsById(testUserId);
             verify(cardRepository).findAll(any(Specification.class), eq(pageable));
@@ -573,15 +698,18 @@ public class CardServiceUnitTest {
             when(cardRepository.findAll(any(Specification.class), eq(pageable))).thenReturn(cardPage);
             when(cardMapper.toResponse(any(PaymentCard.class))).thenReturn(cardResponse);
 
-            // When
-            Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                Page<CardResponse> result = cardService.getCardsByUserId(testUserId, null, null, pageable);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getSize()).isEqualTo(100);
-            assertThat(result.getContent()).hasSize(50);
-            assertThat(result.getTotalElements()).isEqualTo(50);
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getSize()).isEqualTo(100);
+                assertThat(result.getContent()).hasSize(50);
+                assertThat(result.getTotalElements()).isEqualTo(50);
+            }
 
+            verify(userRepository).existsById(testUserId);
             verify(cardRepository).findAll(any(Specification.class), eq(pageable));
             verify(cardMapper, times(50)).toResponse(any(PaymentCard.class));
         }

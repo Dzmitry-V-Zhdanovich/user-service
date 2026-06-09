@@ -19,12 +19,17 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -58,6 +63,8 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserResponse getUserById(UUID id) {
+        checkAccess(id);
+
         log.debug("Поиск пользователя по ID: {}", id);
 
         Optional<UserWithCardsResponse> cachedUser = userCacheService.getCachedUser(id);
@@ -128,6 +135,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserResponse updateUser(UUID id, UpdateUserRequest request) {
+        checkAccess(id);
+
         log.debug("Обновление пользователя с ID: {}", id);
 
         User user = userRepository.findById(id)
@@ -169,6 +178,8 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public void deleteUser(UUID id) {
+        checkAccess(id);
+
         log.debug("Удаление пользователя с ID: {}", id);
 
         if (!userRepository.existsById(id)) {
@@ -180,5 +191,27 @@ public class UserServiceImpl implements UserService {
         userCacheService.evictUser(id);
 
         log.info("Удалён пользователь с ID: {}", id);
+    }
+
+    private void checkAccess(UUID targetUserId) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            throw new AccessDeniedException("Доступ запрещен: отсутствует аутентификация");
+        }
+
+        Set<String> roles = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .collect(Collectors.toSet());
+
+        if (roles.contains("ROLE_ADMIN") || roles.contains("ROLE_SERVICE")) {
+            return;
+        }
+
+        String currentUserIdStr = (String) authentication.getPrincipal();
+
+        if (!currentUserIdStr.equals(targetUserId.toString())) {
+            log.warn("Пользователь {} пытался получить доступ к данным пользователя {}", currentUserIdStr, targetUserId);
+            throw new AccessDeniedException("Доступ запрещен: вы можете управлять только своим профилем");
+        }
     }
 }

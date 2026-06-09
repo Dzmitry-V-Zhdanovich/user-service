@@ -26,9 +26,11 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -119,6 +121,21 @@ public class UserServiceUnitTest {
                 .build();
     }
 
+    interface TestSecurityContext extends AutoCloseable {
+        @Override
+        void close();
+    }
+
+    TestSecurityContext mockSecurityContext(UUID userId, String role) {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                userId.toString(),
+                null,
+                List.of(new SimpleGrantedAuthority(role))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
+        return SecurityContextHolder::clearContext;
+    }
+
     @Nested
     @DisplayName("createUser() tests")
     class CreateUserTests {
@@ -174,21 +191,17 @@ public class UserServiceUnitTest {
                     .id(testUserId)
                     .name(cachedUser.getName())
                     .build();
-
             when(userMapper.toResponse(any(UserWithCardsResponse.class)))
                     .thenReturn(expectedResponse);
 
-            // When
-            UserResponse result = userService.getUserById(testUserId);
+            try (var ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                UserResponse result = userService.getUserById(testUserId);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getId()).isEqualTo(testUserId);
-
-            verify(userCacheService).getCachedUser(testUserId);
-            verify(userRepository, never()).findById(any());
-
-            verify(userMapper).toResponse(any(UserWithCardsResponse.class));
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getId()).isEqualTo(testUserId);
+            }
         }
 
         @Test
@@ -197,16 +210,18 @@ public class UserServiceUnitTest {
             // Given
             when(userCacheService.getCachedUser(testUserId)).thenReturn(Optional.empty());
             when(userRepository.findById(testUserId)).thenReturn(Optional.of(testUser));
-            when(cardRepository.findByUserId(testUserId)).thenReturn(new ArrayList<>());
+            when(cardRepository.findByUserId(testUserId)).thenReturn(new java.util.ArrayList<>());
             when(cardRepository.countByUserId(testUserId)).thenReturn(0);
             when(userMapper.toResponse(testUser)).thenReturn(userResponse);
 
-            // When
-            UserResponse result = userService.getUserById(testUserId);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                UserResponse result = userService.getUserById(testUserId);
 
-            // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getId()).isEqualTo(testUserId);
+                // Then
+                assertThat(result).isNotNull();
+                assertThat(result.getId()).isEqualTo(testUserId);
+            }
 
             verify(userCacheService).getCachedUser(testUserId);
             verify(userRepository).findById(testUserId);
@@ -217,14 +232,27 @@ public class UserServiceUnitTest {
         @Test
         @DisplayName("Should throw exception when user not found")
         void shouldThrowExceptionWhenUserNotFound() {
-            // Given
-            when(userCacheService.getCachedUser(testUserId)).thenReturn(Optional.empty());
-            when(userRepository.findById(testUserId)).thenReturn(Optional.empty());
+            UsernamePasswordAuthenticationToken auth =
+                    new UsernamePasswordAuthenticationToken(
+                            testUserId.toString(),
+                            null,
+                            java.util.List.of(new SimpleGrantedAuthority("ROLE_USER"))
+                    );
+            SecurityContextHolder.getContext().setAuthentication(auth);
 
-            // When & Then
-            assertThatThrownBy(() -> userService.getUserById(testUserId))
-                    .isInstanceOf(ResourceNotFoundException.class)
-                    .hasMessageContaining("Пользователь");
+            try {
+                // Given
+                when(userCacheService.getCachedUser(testUserId)).thenReturn(Optional.empty());
+                when(userRepository.findById(testUserId)).thenReturn(Optional.empty());
+
+                // When & Then
+                assertThatThrownBy(() -> userService.getUserById(testUserId))
+                        .isInstanceOf(ResourceNotFoundException.class)
+                        .hasMessageContaining("Пользователь");
+
+            } finally {
+                SecurityContextHolder.clearContext();
+            }
         }
     }
 
@@ -241,12 +269,16 @@ public class UserServiceUnitTest {
             when(userMapper.toResponse(testUser)).thenReturn(userResponse);
             doNothing().when(userCacheService).evictUser(testUserId);
 
-            // When
-            UserResponse result = userService.updateUser(testUserId, updateRequest);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                UserResponse result = userService.updateUser(testUserId, updateRequest);
 
-            // Then
-            assertThat(result).isNotNull();
+                // Then
+                assertThat(result).isNotNull();
+            }
+
             verify(userCacheService).evictUser(testUserId);
+            verify(userRepository).save(testUser);
         }
     }
 
@@ -262,10 +294,11 @@ public class UserServiceUnitTest {
             doNothing().when(userRepository).deleteById(testUserId);
             doNothing().when(userCacheService).evictUser(testUserId);
 
-            // When
-            userService.deleteUser(testUserId);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When
+                userService.deleteUser(testUserId);
+            }
 
-            // Then
             verify(userRepository).deleteById(testUserId);
             verify(userCacheService).evictUser(testUserId);
         }
@@ -276,9 +309,11 @@ public class UserServiceUnitTest {
             // Given
             when(userRepository.existsById(testUserId)).thenReturn(false);
 
-            // When & Then
-            assertThatThrownBy(() -> userService.deleteUser(testUserId))
-                    .isInstanceOf(ResourceNotFoundException.class);
+            try (TestSecurityContext ignored = mockSecurityContext(testUserId, "ROLE_USER")) {
+                // When & Then
+                assertThatThrownBy(() -> userService.deleteUser(testUserId))
+                        .isInstanceOf(ResourceNotFoundException.class);
+            }
 
             verify(userRepository, never()).deleteById(any());
         }

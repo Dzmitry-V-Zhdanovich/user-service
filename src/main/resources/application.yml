@@ -46,11 +46,11 @@ spring:
     type: none
 
 jwt:
-  secret: "mySuperSecretKeyForJWTGenerationThatIsLongEnoughForHS256AndMoreSecure12345"
+  secret: ${JWT_SECRET:mySuperSecretKeyForJWTGenerationThatIsLongEnoughForHS256AndMoreSecure12345}
   access:
-    expiration: 900000  # 15 minutes
+    expiration: 900000
   refresh:
-    expiration: 604800000  # 7 days
+    expiration: 604800000
 
 logging:
   level:

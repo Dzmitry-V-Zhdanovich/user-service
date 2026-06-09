@@ -20,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,6 +45,9 @@ public class CardServiceImpl implements CardService {
     @Transactional
     public CardResponse createCard(CreateCardRequest request) {
         UUID userId = UUID.fromString(request.getUserId());
+
+        checkAccess(userId);
+
         log.debug("Создание карты для пользователя: {}", userId);
 
         User user = userRepository.findById(userId)
@@ -74,20 +78,15 @@ public class CardServiceImpl implements CardService {
         PaymentCard card = cardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
-        String currentUserId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-
-        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-
-        if (!isAdmin && !card.getUser().getId().toString().equals(currentUserId)) {
-            throw new AccessDeniedException("Вы не имеете доступа к чужой карте");
-        }
+        checkAccess(card.getUser().getId());
 
         return cardMapper.toResponse(card);
     }
 
     @Override
     public List<CardResponse> getCardsByUserId(UUID userId) {
+        checkAccess(userId);
+
         log.debug("Получение всех карт пользователя: {}", userId);
 
         if (!userRepository.existsById(userId)) {
@@ -100,6 +99,8 @@ public class CardServiceImpl implements CardService {
 
     @Override
     public Page<CardResponse> getCardsByUserId(UUID userId, Boolean active, String number, Pageable pageable) {
+        checkAccess(userId);
+
         log.debug("Получение карт пользователя {} с фильтрацией: active={}, number={}", userId, active, number);
 
         if (!userRepository.existsById(userId)) {
@@ -119,14 +120,7 @@ public class CardServiceImpl implements CardService {
         PaymentCard card = cardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
-        String currentUserId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-
-        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-
-        if (!isAdmin && !card.getUser().getId().toString().equals(currentUserId)) {
-            throw new AccessDeniedException("Вы не имеете доступа к чужой карте");
-        }
+        checkAccess(card.getUser().getId());
 
         if (request.getNumber() != null && !request.getNumber().equals(card.getNumber())) {
             if (cardRepository.existsByNumber(request.getNumber())) {
@@ -167,19 +161,33 @@ public class CardServiceImpl implements CardService {
         PaymentCard card = cardRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Карта", id));
 
-        String currentUserId = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-
-        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
-                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
-
-        if (!isAdmin && !card.getUser().getId().toString().equals(currentUserId)) {
-            throw new AccessDeniedException("Вы не имеете доступа к чужой карте");
-        }
+        checkAccess(card.getUser().getId());
 
         cardRepository.deleteById(id);
 
         userCacheService.evictUser(card.getUser().getId());
 
         log.info("Удалена карта с ID: {}", id);
+    }
+
+    private void checkAccess(UUID ownerUserId) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            throw new AccessDeniedException("Доступ запрещен: отсутствует аутентификация");
+        }
+
+        boolean isAdmin = authentication.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+
+        if (isAdmin) {
+            return;
+        }
+
+        String currentUserIdStr = (String) authentication.getPrincipal();
+
+        if (!currentUserIdStr.equals(ownerUserId.toString())) {
+            log.warn("Пользователь {} пытался совершить несанкционированное действие с картами пользователя {}", currentUserIdStr, ownerUserId);
+            throw new AccessDeniedException("Вы не имеете доступа к управлению чужими картами");
+        }
     }
 }
